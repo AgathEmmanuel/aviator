@@ -1,4 +1,4 @@
-# dupops ( Duplicate Operations )  
+# aviator 
 
 A Project focused on learning K8s operator development in golang  
 
