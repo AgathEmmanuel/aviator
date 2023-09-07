@@ -28,13 +28,3 @@ acesses
 infrastructure  
 processes
 
-all of which will be available as CRDs  
-
-/dev-crds  
-/ops-files  
-
-Adding dev-crds with a flag will generate files in the ops-files folder  
-if the flag is not present the ops-files are not generated as part of the repository  
-but will be generated only in the dupop-operators local file system  
-from which terraform or kubectl processes will apply those with a control loop mechanism  
-dupop-engine have the capacity to generate the entire infra & apps from dev-crds  
