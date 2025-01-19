@@ -1,0 +1,9 @@
+apiVersion: aviator.example.com/v1alpha1
+kind: AviatorPolicy
+metadata:
+  labels:
+    app.kubernetes.io/name: aviator
+    app.kubernetes.io/managed-by: kustomize
+  name: aviatorpolicy-sample
+spec:
+  # TODO(user): Add fields here

@@ -1,0 +1,32 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - aviator.example.com
+  resources:
+  - aviatorpolicies
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - aviator.example.com
+  resources:
+  - aviatorpolicies/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - aviator.example.com
+  resources:
+  - aviatorpolicies/status
+  verbs:
+  - get
+  - patch
+  - update

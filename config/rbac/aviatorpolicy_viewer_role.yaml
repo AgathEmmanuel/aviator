@@ -1,0 +1,29 @@
+# This rule is not used by the project aviator itself.
+# It is provided to allow the cluster admin to help manage permissions for users.
+#
+# Grants read-only access to aviator.example.com resources.
+# This role is intended for users who need visibility into these resources
+# without permissions to modify them. It is ideal for monitoring purposes and limited-access viewing.
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: aviator
+    app.kubernetes.io/managed-by: kustomize
+  name: aviatorpolicy-viewer-role
+rules:
+- apiGroups:
+  - aviator.example.com
+  resources:
+  - aviatorpolicies
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - aviator.example.com
+  resources:
+  - aviatorpolicies/status
+  verbs:
+  - get
