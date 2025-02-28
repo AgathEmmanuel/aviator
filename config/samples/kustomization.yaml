@@ -1,4 +1,0 @@
-## Append samples of your project ##
-resources:
-- aviator_v1alpha1_aviatorpolicy.yaml
-# +kubebuilder:scaffold:manifestskustomizesamples
