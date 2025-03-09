@@ -40,9 +40,9 @@ spec:
             description: AviatorPolicySpec defines the desired state of AviatorPolicy.
             properties:
               latencyThreshold:
-                type: string
+                type: integer
               pingInterval:
-                type: string
+                type: integer
               targetRef:
                 description: |-
                   Foo is an example field of AviatorPolicy. Edit aviatorpolicy_types.go to remove/update

@@ -32,8 +32,8 @@ type AviatorPolicySpec struct {
 	// Foo is an example field of AviatorPolicy. Edit aviatorpolicy_types.go to remove/update
 	// Foo string `json:"foo,omitempty"`
 	TargetRef        corev1.ObjectReference `json:"targetRef"`        // Reference to the Deployment/Service
-	LatencyThreshold string                 `json:"latencyThreshold"` // e.g., "100ms"
-	PingInterval     string                 `json:"pingInterval"`     // e.g., "5s"
+	LatencyThreshold int                    `json:"latencyThreshold"` // e.g., "100ms"
+	PingInterval     int                    `json:"pingInterval"`     // e.g., "5s"
 }
 
 // AviatorPolicyStatus defines the observed state of AviatorPolicy.
