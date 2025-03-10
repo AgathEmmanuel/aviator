@@ -26,7 +26,9 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -89,7 +91,11 @@ func (r *AviatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	bestPod := selectBestPod(latencyMap)
 
 	// Update traffic routing
-	err := updateTrafficRouting(ctx, bestPod)
+	clientset, err := kubernetes.NewForConfig(ctrl.GetConfigOrDie())
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	err = updateTrafficRouting(ctx, clientset, policy.Namespace, policy.Spec.TargetRef.Name, bestPod)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -121,12 +127,44 @@ func selectBestPod(latencyMap map[string]time.Duration) string {
 	return bestPod
 }
 
-// Update Kubernetes Service to route traffic to the selected pod
-func updateTrafficRouting(ctx context.Context, bestPod string) error {
-	fmt.Printf("Routing traffic to pod: %s\n", bestPod)
-	// Here, update Kubernetes service endpoint or an external load balancer
-	// to route traffic to the selected pod
+// Update Kubernetes Service to route traffic to the selected pod by updating the Kubernetes Service Endpoints
+// updateTrafficRouting updates the Kubernetes Endpoints object to direct traffic to the best pod
+func updateTrafficRouting(ctx context.Context, clientset *kubernetes.Clientset, namespace, serviceName, bestPod string) error {
+	// Fetch the best pod's details
+	pod, err := clientset.CoreV1().Pods(namespace).Get(ctx, bestPod, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get pod %s: %v", bestPod, err)
+	}
 
+	// Get the service's endpoints
+	endpoints, err := clientset.CoreV1().Endpoints(namespace).Get(ctx, serviceName, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get endpoints for service %s: %v", serviceName, err)
+	}
+
+	// Update endpoints to point to only the best pod
+	newEndpoints := &corev1.Endpoints{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      serviceName,
+			Namespace: namespace,
+		},
+		Subsets: []corev1.EndpointSubset{
+			{
+				Addresses: []corev1.EndpointAddress{
+					{IP: pod.Status.PodIP},
+				},
+				Ports: endpoints.Subsets[0].Ports, // Retain original ports
+			},
+		},
+	}
+
+	// Apply the updated endpoints
+	_, err = clientset.CoreV1().Endpoints(namespace).Update(ctx, newEndpoints, metav1.UpdateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to update endpoints for service %s: %v", serviceName, err)
+	}
+
+	fmt.Printf("Traffic routed to pod: %s with IP: %s\n", bestPod, pod.Status.PodIP)
 	return nil
 }
 

@@ -6,4 +6,9 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: aviatorpolicy-sample
 spec:
-  # TODO(user): Add fields here
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: my-app
+  latencyThreshold: 100
+  pingInterval: 5

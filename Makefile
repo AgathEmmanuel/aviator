@@ -12,7 +12,8 @@ endif
 # Be aware that the target commands are only tested with Docker which is
 # scaffolded by default. However, you might want to replace it to use other
 # tools. (i.e. podman)
-CONTAINER_TOOL ?= docker
+# CONTAINER_TOOL ?= docker
+CONTAINER_TOOL ?= nerdctl
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
@@ -107,6 +108,12 @@ run: manifests generate fmt vet ## Run a controller from your host.
 docker-build: ## Build docker image with the manager.
 	$(CONTAINER_TOOL) build -t ${IMG} .
 
+.PHONY: docker-save
+docker-save: ## Save and import docker image with the manager.
+	$(CONTAINER_TOOL) save ${IMG} > ${IMG}.tar
+	microk8s ctr image import ${IMG}.tar
+	rm ${IMG}.tar
+
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
 	$(CONTAINER_TOOL) push ${IMG}
@@ -133,6 +140,12 @@ build-installer: manifests generate kustomize ## Generate a consolidated YAML wi
 	mkdir -p dist
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default > dist/install.yaml
+
+.PHONY: generate-yaml
+generate-yaml: manifests generate kustomize ## Generate all necessary YAML files for deployment.
+	mkdir -p generated-yaml
+	$(KUSTOMIZE) build config/crd > generated-yaml/crd.yaml
+	$(KUSTOMIZE) build config/default > generated-yaml/default.yaml
 
 ##@ Deployment
 

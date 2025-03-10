@@ -46,6 +46,7 @@ type AviatorPolicyStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:shortName=avp
 
 // AviatorPolicy is the Schema for the aviatorpolicies API.
 type AviatorPolicy struct {

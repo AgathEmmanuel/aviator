@@ -45,6 +45,37 @@ Modify controllers/aviatorpolicy_controller.go to:
 
 Key Components of the Controller Logic
 
+```
+make install
+make deploy
+```
+
+When using microk8s for local develepment, set the controller deployments imagePullPolicy to Never, so that it make use of the local registry  
+
+Adding steps to Makefile to save the image from nerdctl images to microk8s image registry  
+
+```
+CONTAINER_TOOL ?= nerdctl
+
+
+.PHONY: docker-save
+docker-save: ## Save and import docker image with the manager.
+	$(CONTAINER_TOOL) save ${IMG} > ${IMG}.tar
+	microk8s ctr image import ${IMG}.tar
+	rm ${IMG}.tar
+
+```
+Adding steps to generate yamls using kustomize  
+
+```
+.PHONY: generate-yaml
+generate-yaml: manifests generate kustomize ## Generate all necessary YAML files for deployment.
+	mkdir -p generated-yaml
+	$(KUSTOMIZE) build config/crd > generated-yaml/crd.yaml
+	$(KUSTOMIZE) build config/default > generated-yaml/default.yaml
+```
+
+
 
 
 
