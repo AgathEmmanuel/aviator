@@ -44,14 +44,17 @@ Aviator is ideal for latency-sensitive applications, such as real-time systems, 
    kind: AviatorPolicy  
    metadata:  
      name: my-app-aviator-policy  
-   spec:  
-     targetRef:  
-       apiVersion: apps/v1  
-       kind: Deployment  
-       name: my-app  
-     latencyThreshold: 100ms  # Maximum acceptable latency  
-     pingInterval: 5s        # Interval between latency checks  
-   
+   spec:
+     targetRef:
+       apiVersion: v1
+       kind: Service
+       name: my-app-service  # <-- Target the Service, not Deployment
+     latencyThreshold: 100ms   # Max acceptable latency
+     pingInterval: 5s          # Interval between latency checks
+     scaleUpThreshold: 150ms    # Scale up if latency exceeds this
+     scaleDownThreshold: 50ms   # Scale down if latency drops below this
+
+
    ```
 
    Apply the manifest:
@@ -76,11 +79,38 @@ Traffic is routed to the pod with the lowest latency using Kubernetes services o
 ## Compatibility
 
 - Kubernetes 1.20+
-- Works with Deployment and StatefulSet
+- Works with Deployment
+
+## Functional Testing  
+
+
+To easily verify that Aviator is working and demonstrate latency-based traffic routing, we can set up a simple test environment with the following:  
+
+Two versions of a test app (fast-app and slow-app)  
+  - fast-app responds in 10ms  
+  - slow-app responds in 500ms  
+  
+Aviator Operator (running in the cluster)  
+It probes both versions, detects latency, and updates traffic routing accordingly.  
+
+
+
+## Load Testing  
+
+
+
+
+
+
+## E2E Testing  
+
+
 
 
 
 ## Reference  
 - [Load is not what you should balance: Introducing Prequal](https://arxiv.org/abs/2312.10172)  
+
+
 
 

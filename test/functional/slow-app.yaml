@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: slow-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: test-app
+      version: slow
+  template:
+    metadata:
+      labels:
+        app: test-app
+        version: slow
+    spec:
+      containers:
+      - name: slow-app
+        image: test-app:latest
+        imagePullPolicy: Never
+        env:
+          - name: LATENCY
+            value: "500"  # Fast response
+        ports:
+        - containerPort: 8080
+

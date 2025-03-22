@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fast-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: test-app
+      version: fast
+  template:
+    metadata:
+      labels:
+        app: test-app
+        version: fast
+    spec:
+      containers:
+      - name: fast-app
+        image: test-app:latest
+        imagePullPolicy: Never
+        env:
+          - name: LATENCY
+            value: "10"  # Fast response
+        ports:
+        - containerPort: 8080

@@ -2,13 +2,13 @@ apiVersion: aviator.example.com/v1alpha1
 kind: AviatorPolicy
 metadata:
   labels:
-    app.kubernetes.io/name: aviator
     app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: aviator
   name: aviatorpolicy-sample
 spec:
+  latencyThreshold: 100
+  pingInterval: 5
   targetRef:
     apiVersion: apps/v1
     kind: Service
     name: test-app
-  latencyThreshold: 100
-  pingInterval: 5

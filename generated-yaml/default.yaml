@@ -19,6 +19,8 @@ spec:
     kind: AviatorPolicy
     listKind: AviatorPolicyList
     plural: aviatorpolicies
+    shortNames:
+    - avp
     singular: aviatorpolicy
   scope: Namespaced
   versions:
@@ -396,7 +398,6 @@ spec:
         command:
         - /manager
         image: controller:latest
-        imagePullPolicy: Never
         livenessProbe:
           httpGet:
             path: /healthz

@@ -20,26 +20,16 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sort"
 	"time"
 
 	aviatorv1alpha1 "aviator/api/v1alpha1"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/kubernetes"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
-	//"k8s.io/apimachinery/pkg/types"
-	//"k8s.io/apimachinery/pkg/util/intstr"
-	//"k8s.io/apimachinery/pkg/util/wait"
-	//"k8s.io/apimachinery/pkg/util/runtime"
-	//"k8s.io/apimachinery/pkg/util/sets"
-	//"k8s.io/apimachinery/pkg/util/validation/field"
-	//"k8s.io/apimachinery/pkg/util/wait"
-	//"k8s.io/apimachinery/pkg/util/wait"
 )
 
 // AviatorPolicyReconciler reconciles a AviatorPolicy object
@@ -52,126 +42,169 @@ type AviatorPolicyReconciler struct {
 // +kubebuilder:rbac:groups=aviator.example.com,resources=aviatorpolicies/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=aviator.example.com,resources=aviatorpolicies/finalizers,verbs=update
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the AviatorPolicy object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.4/pkg/reconcile
-
+// Reconcile periodically checks latency of Service pods and updates routing
 func (r *AviatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
+	// Fetch AviatorPolicy
+	var aviatorPolicy aviatorv1alpha1.AviatorPolicy
+	if err := r.Get(ctx, req.NamespacedName, &aviatorPolicy); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
 
-	var policy aviatorv1alpha1.AviatorPolicy
-	if err := r.Get(ctx, req.NamespacedName, &policy); err != nil {
-		if errors.IsNotFound(err) {
-			return ctrl.Result{}, nil
-		}
+	// Fetch associated Service
+	var service corev1.Service
+	serviceKey := types.NamespacedName{Name: aviatorPolicy.Spec.TargetRef.Name, Namespace: req.Namespace}
+	if err := r.Get(ctx, serviceKey, &service); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	// Fetch deployment pods
+	// Get all pods behind the Service
+	pods, err := r.getPodsForService(ctx, service)
+	if err != nil || len(pods) == 0 {
+		return ctrl.Result{}, err
+	}
+	// add a print statement to print the pods
+	// fmt.Printf("Pods: %v\n", pods)
+
+	// Measure latency of each pod
+	latencyMap := r.measureLatency(pods)
+
+	// Determine how many pods to keep active (adaptive scaling)
+	activePods := r.selectOptimalPods(latencyMap, time.Duration(aviatorPolicy.Spec.LatencyThreshold)*time.Millisecond)
+	// print the active pods
+	fmt.Printf("Active Pods: %v\n", activePods)
+
+	// Sort active pods by lowest latency
+	sortedActivePods := sortPodsByLatency(latencyMap, activePods)
+
+	// Select top N pods with the lowest latency (e.g., top 3)
+	topN := 3
+	if len(sortedActivePods) < topN {
+		topN = len(sortedActivePods)
+	}
+	selectedPods := sortedActivePods[:topN]
+
+	// Update Service Endpoints to route traffic only to selected pods
+	err = r.updateServiceEndpoints(ctx, &service, selectedPods, pods)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// Requeue after PingInterval (default 5s) to re-evaluate latency
+	return ctrl.Result{RequeueAfter: time.Duration(aviatorPolicy.Spec.PingInterval) * time.Second}, nil
+}
+
+// getPodsForService fetches all pods behind a given Service
+func (r *AviatorPolicyReconciler) getPodsForService(ctx context.Context, service corev1.Service) ([]corev1.Pod, error) {
 	var podList corev1.PodList
-	if err := r.List(ctx, &podList, client.MatchingLabels{"app": policy.Spec.TargetRef.Name}); err != nil {
-		return ctrl.Result{}, err
+	selector := client.MatchingLabels(service.Spec.Selector)
+	if err := r.List(ctx, &podList, selector, client.InNamespace(service.Namespace)); err != nil {
+		return nil, err
 	}
+	// add a print statement to print the service
+	//fmt.Printf("Service: %v\n", service)
+	// add a print statement to print the podList
+	//fmt.Printf("PodList: %v\n", podList.Items)
+	return podList.Items, nil
+}
 
-	// Measure latency for each pod
+// measureLatency checks response time of each pod
+func (r *AviatorPolicyReconciler) measureLatency(pods []corev1.Pod) map[string]time.Duration {
 	latencyMap := make(map[string]time.Duration)
-	for _, pod := range podList.Items {
-		latency := probePod(pod.Status.PodIP)
+
+	for _, pod := range pods {
+		start := time.Now()
+		url := fmt.Sprintf("http://%s:8080/", pod.Status.PodIP) // Assumes health check at port 8080
+		_, err := http.Get(url)
+		latency := time.Since(start)
+
+		if err != nil {
+			latency = 9999 * time.Millisecond // Assign high latency to unreachable pods
+		}
+
 		latencyMap[pod.Name] = latency
+
+		fmt.Printf("Pod %s latency: %v, PodIP: %v\n", pod.Name, latency, pod.Status.PodIP)
+
 	}
 
-	// Select the pod with the lowest latency
-	bestPod := selectBestPod(latencyMap)
-
-	// Update traffic routing
-	clientset, err := kubernetes.NewForConfig(ctrl.GetConfigOrDie())
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	err = updateTrafficRouting(ctx, clientset, policy.Namespace, policy.Spec.TargetRef.Name, bestPod)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	// Requeue reconciliation after PingInterval seconds
-	return ctrl.Result{RequeueAfter: time.Duration(policy.Spec.PingInterval) * time.Second}, nil
+	return latencyMap
 }
 
-// Probe pod by sending an HTTP request and measuring response time
-func probePod(ip string) time.Duration {
-	start := time.Now()
-	_, err := http.Get(fmt.Sprintf("http://%s:8080", ip))
-	if err != nil {
-		return time.Duration(999999999)
-	}
-	return time.Since(start)
+// sortPodsByLatency sorts the given pods by response time (fastest first)
+func sortPodsByLatency(latencyMap map[string]time.Duration, pods []string) []string {
+	sort.Slice(pods, func(i, j int) bool {
+		return latencyMap[pods[i]] < latencyMap[pods[j]]
+	})
+	// print the pods
+	fmt.Printf("Sorted Pods: %v\n", pods)
+	return pods
 }
 
-// Select the pod with the lowest latency
-func selectBestPod(latencyMap map[string]time.Duration) string {
-	var bestPod string
-	var lowestLatency time.Duration = time.Hour
+// selectOptimalPods dynamically selects pods based on latency threshold
+func (r *AviatorPolicyReconciler) selectOptimalPods(latencyMap map[string]time.Duration, threshold time.Duration) []string {
+	var selectedPods []string
+
 	for pod, latency := range latencyMap {
-		if latency < lowestLatency {
-			lowestLatency = latency
-			bestPod = pod
+		if latency <= threshold {
+			selectedPods = append(selectedPods, pod) // Include pods below threshold
 		}
 	}
-	return bestPod
+
+	// Ensure at least 1 pod is always active
+	if len(selectedPods) == 0 {
+		selectedPods = append(selectedPods, sortPodsByLatency(latencyMap, nil)[0])
+	}
+
+	return selectedPods
 }
 
-// Update Kubernetes Service to route traffic to the selected pod by updating the Kubernetes Service Endpoints
-// updateTrafficRouting updates the Kubernetes Endpoints object to direct traffic to the best pod
-func updateTrafficRouting(ctx context.Context, clientset *kubernetes.Clientset, namespace, serviceName, bestPod string) error {
-	// Fetch the best pod's details
-	pod, err := clientset.CoreV1().Pods(namespace).Get(ctx, bestPod, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to get pod %s: %v", bestPod, err)
+// updateServiceEndpoints modifies Kubernetes Service endpoints to route traffic to selected pods
+func (r *AviatorPolicyReconciler) updateServiceEndpoints(ctx context.Context, service *corev1.Service, selectedPods []string, pods []corev1.Pod) error {
+	if len(selectedPods) == 0 {
+		return fmt.Errorf("no available pods to route traffic")
 	}
 
-	// Get the service's endpoints
-	endpoints, err := clientset.CoreV1().Endpoints(namespace).Get(ctx, serviceName, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to get endpoints for service %s: %v", serviceName, err)
+	// Fetch existing Endpoints resource
+	var endpoints corev1.Endpoints
+	// print the endpoints
+	fmt.Printf("Endpoints: %v\n", endpoints)
+	endpointsKey := types.NamespacedName{Name: service.Name, Namespace: service.Namespace}
+	// print the endpointsKey
+	fmt.Printf("EndpointsKey: %v\n", endpointsKey)
+	if err := r.Get(ctx, endpointsKey, &endpoints); err != nil {
+		return err
 	}
 
-	// Update endpoints to point to only the best pod
-	newEndpoints := &corev1.Endpoints{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      serviceName,
-			Namespace: namespace,
+	// Construct new endpoint list
+	newAddresses := []corev1.EndpointAddress{}
+	for _, podName := range selectedPods {
+		for _, pod := range pods {
+			if pod.Name == podName {
+				newAddresses = append(newAddresses, corev1.EndpointAddress{IP: pod.Status.PodIP}) // Update to selected pods
+				break
+			}
+		}
+	}
+
+	newEndpointSubset := []corev1.EndpointSubset{
+		{
+			Addresses: newAddresses,
+			Ports:     endpoints.Subsets[0].Ports, // Keep existing ports
 		},
-		Subsets: []corev1.EndpointSubset{
-			{
-				Addresses: []corev1.EndpointAddress{
-					{IP: pod.Status.PodIP},
-				},
-				Ports: endpoints.Subsets[0].Ports, // Retain original ports
-			},
-		},
 	}
 
-	// Apply the updated endpoints
-	_, err = clientset.CoreV1().Endpoints(namespace).Update(ctx, newEndpoints, metav1.UpdateOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to update endpoints for service %s: %v", serviceName, err)
-	}
+	// print the newAddresses
+	fmt.Printf("New Addresses: %v\n", newAddresses)
 
-	fmt.Printf("Traffic routed to pod: %s with IP: %s\n", bestPod, pod.Status.PodIP)
-	return nil
+	// Update Endpoints resource
+	endpoints.Subsets = newEndpointSubset
+	return r.Update(ctx, &endpoints)
 }
 
-// SetupWithManager sets up the controller with the Manager.
+// SetupWithManager sets up the controller with the Manager
 func (r *AviatorPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&aviatorv1alpha1.AviatorPolicy{}).
-		Named("aviatorpolicy").
+		Owns(&corev1.Service{}). // Watch for Service changes
 		Complete(r)
 }

@@ -1,21 +1,21 @@
-# Aviator Implementation Steps  
+# Aviator Docs  
 
+## Implementation Steps  
 
-
-### 1. Install Kubebuilder  
+### Install Kubebuilder  
 ```
 curl -L -o kubebuilder https://go.kubebuilder.io/dl/latest/${GOOS}/${GOARCH}
 chmod +x kubebuilder && mv kubebuilder /usr/local/bin/
 ```
 
 
-### 2. Scaffold a New Project
+### Scaffold a New Project
 ```
 mkdir aviator && cd aviator
 kubebuilder init --domain example.com --repo aviator
 ```
 
-### 3. Create the Custom Resource Definition (CRD)
+### Create the Custom Resource Definition (CRD)
 
 Define the AviatorPolicy CRD.
 
@@ -32,16 +32,19 @@ Run the following to generate Kubernetes code:
 ```
 make generate
 make manifests
+make generate-yaml
 ```
 
 
-### 4. Implement the Controller
+### Implement the Controller
 
 Modify controllers/aviatorpolicy_controller.go to:
 
-    Periodically probe pods in the target deployment
-    Measure response latency
-    Route traffic to the least busy pod
+
+Watch for changes to the Service and its endpoints.
+Periodically probe all pods behind the Service and measure latency.
+Measure response latency
+Identify the least-latency pod(s) and update the Service's endpoints to direct traffic accordingly.
 
 Key Components of the Controller Logic
 
@@ -74,6 +77,100 @@ generate-yaml: manifests generate kustomize ## Generate all necessary YAML files
 	$(KUSTOMIZE) build config/crd > generated-yaml/crd.yaml
 	$(KUSTOMIZE) build config/default > generated-yaml/default.yaml
 ```
+
+### Add support for Monitoring & Observability  
+
+
+
+
+## Development Workflow 
+
+### Local Setup  
+
+```
+# To run the controller  
+make run
+
+# To run the controller and watch for file changes so that it reruns  
+watchexec -r -e go -- go run ./cmd/main.go
+
+```
+
+### Cluster Setup  
+
+Make use of tilt  
+
+
+## Functional Testing  
+
+#### Manual Testing  
+Tested manualy by similating a practical scenario.  
+
+```
+nerdctl build -t test-app .
+
+nerdctl save "$1" > "$1".tar && microk8s ctr image import "$1".tar && rm "$1".tar
+
+
+
+```
+
+#### Unit Testing  
+Verifies individual components or modules of the software  
+
+
+#### Integration Testing  
+Tests the interaction between different modules or components.  
+
+#### System Testing  
+
+Tests the entire software system as a whole  
+
+
+
+
+## Load Testing  
+
+Simulating the load to test proper working  
+
+
+## E2E Testing  
+
+Tested with a real world application in Google Cloud GKE cluster  
+
+
+
+## Troubleshooting  
+
+```
+Error
+microk8s.kubectl logs testnginx -n aviator-system
+Error from server: Get "https://192.168.1.15:10250/containerLogs/aviator-system/testnginx/testnginx": tls: failed to verify certificate: x509: certificate is valid for 192.168.1.11, not 192.168.1.15
+
+
+Solution
+
+1. Check Kubelet's Advertised IP
+
+Run the following command to check the advertised node IP:
+
+microk8s.kubectl get nodes -o wide
+
+If the node is still using 192.168.1.11, but your request is going to 192.168.1.15, update your kubeconfig or rejoin the node.
+
+2. Regenerate the Certificates
+
+If the node's IP has changed, you need to regenerate the certificates:
+
+microk8s stop
+microk8s refresh-certs
+microk8s start
+
+
+Then check logs again
+```
+
+
 
 
 

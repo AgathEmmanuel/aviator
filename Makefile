@@ -146,6 +146,7 @@ generate-yaml: manifests generate kustomize ## Generate all necessary YAML files
 	mkdir -p generated-yaml
 	$(KUSTOMIZE) build config/crd > generated-yaml/crd.yaml
 	$(KUSTOMIZE) build config/default > generated-yaml/default.yaml
+	$(KUSTOMIZE) build config/samples > generated-yaml/samples.yaml
 
 ##@ Deployment
 
