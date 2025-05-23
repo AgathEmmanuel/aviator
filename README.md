@@ -11,6 +11,15 @@ This operator ensures that:
 
 Aviator is ideal for latency-sensitive applications, such as real-time systems, gaming, financial trading platforms, or live-streaming services.  
 
+## Working  
+
+
+
+
+
+- check pods response latency by pinging them at frequent intervals  
+- updates the ip list in endpoints resource (of the service) with least busy pods  
+
 ---
 
 ## Features  
@@ -81,7 +90,10 @@ Traffic is routed to the pod with the lowest latency using Kubernetes services o
 - Kubernetes 1.20+
 - Works with Deployment
 
-## Functional Testing  
+
+## Testing  
+
+### Functional Testing  
 
 
 To easily verify that Aviator is working and demonstrate latency-based traffic routing, we can set up a simple test environment with the following:  
@@ -95,14 +107,14 @@ It probes both versions, detects latency, and updates traffic routing accordingl
 
 
 
-## Load Testing  
+### Load Testing  
 
 
 
 
 
 
-## E2E Testing  
+### E2E Testing  
 
 
 
