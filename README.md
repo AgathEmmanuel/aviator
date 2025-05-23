@@ -14,11 +14,13 @@ Aviator is ideal for latency-sensitive applications, such as real-time systems, 
 ## Working  
 
 
-
-
+![Aviator-Working](https://github.com/AgathEmmanuel/aviator/blob/main/Aviator-Working.drawio.png)  
 
 - check pods response latency by pinging them at frequent intervals  
 - updates the ip list in endpoints resource (of the service) with least busy pods  
+
+![Aviator-Testing](https://github.com/AgathEmmanuel/aviator/blob/main/test/functional/functional-manual-test.png)  
+
 
 ---
 
