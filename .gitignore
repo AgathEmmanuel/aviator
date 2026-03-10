@@ -25,3 +25,14 @@ go.work
 *.swp
 *.swo
 *~
+
+# eBPF compiled objects
+*.o
+!internal/ebpf/bpf/**/*.c
+
+# Generated vmlinux header (too large, generate at build time)
+internal/ebpf/bpf/headers/vmlinux.h
+
+# Generated deployment YAMLs
+generated-yaml/
+dist/

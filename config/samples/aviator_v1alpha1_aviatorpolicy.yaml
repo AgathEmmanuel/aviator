@@ -7,8 +7,21 @@ metadata:
   name: aviatorpolicy-sample
 spec:
   targetRef:
-    apiVersion: apps/v1
+    apiVersion: v1
     kind: Service
     name: test-app
-  latencyThreshold: 100
-  pingInterval: 5
+  latencyThreshold: 100ms
+  evaluationInterval: 5s
+  latencySource: ebpf
+  selection:
+    mode: percentage
+    percentage: 50
+  circuitBreaker:
+    enabled: true
+    p99Threshold: 500ms
+    consecutiveViolations: 3
+    recoveryInterval: 30s
+  dampening:
+    enabled: true
+    thresholdPercent: 20
+    consecutiveIntervals: 3

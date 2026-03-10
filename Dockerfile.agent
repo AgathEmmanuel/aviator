@@ -1,0 +1,59 @@
+# Stage 1: Build the eBPF C program.
+FROM golang:1.23 AS bpf-builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    clang \
+    llvm \
+    libbpf-dev \
+    linux-headers-generic \
+    linux-tools-common \
+    bpftool \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+COPY internal/ebpf/bpf/ internal/ebpf/bpf/
+
+# Generate vmlinux.h from the build kernel's BTF data.
+# In CI/production, you may want to pin a specific kernel version.
+RUN if [ -f /sys/kernel/btf/vmlinux ]; then \
+        bpftool btf dump file /sys/kernel/btf/vmlinux format c > internal/ebpf/bpf/headers/vmlinux.h; \
+    else \
+        echo "WARNING: No BTF available in build environment, using stub" && \
+        touch internal/ebpf/bpf/headers/vmlinux.h; \
+    fi
+
+# Compile the eBPF program to a .o ELF object.
+RUN clang -O2 -g -target bpf \
+    -D__TARGET_ARCH_x86 \
+    -I/usr/include/bpf \
+    -Iinternal/ebpf/bpf \
+    -c internal/ebpf/bpf/tcp_latency.c \
+    -o tcp_latency.o
+
+# Stage 2: Build the Go agent binary.
+FROM golang:1.23 AS go-builder
+ARG TARGETOS
+ARG TARGETARCH
+
+WORKDIR /workspace
+COPY go.mod go.mod
+COPY go.sum go.sum
+RUN go mod download
+
+COPY cmd/ cmd/
+COPY api/ api/
+COPY internal/ internal/
+
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
+    go build -a -o agent cmd/agent/main.go
+
+# Stage 3: Minimal runtime image.
+FROM gcr.io/distroless/static:nonroot
+WORKDIR /
+
+COPY --from=bpf-builder /workspace/tcp_latency.o /opt/aviator/tcp_latency.o
+COPY --from=go-builder /workspace/agent .
+
+USER 65532:65532
+
+ENTRYPOINT ["/agent"]

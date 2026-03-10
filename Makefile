@@ -1,5 +1,6 @@
-# Image URL to use all building/pushing image targets
+# Image URLs for controller and agent.
 IMG ?= controller:latest
+AGENT_IMG ?= aviator-agent:latest
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -9,14 +10,9 @@ GOBIN=$(shell go env GOBIN)
 endif
 
 # CONTAINER_TOOL defines the container tool to be used for building images.
-# Be aware that the target commands are only tested with Docker which is
-# scaffolded by default. However, you might want to replace it to use other
-# tools. (i.e. podman)
-# CONTAINER_TOOL ?= docker
-CONTAINER_TOOL ?= nerdctl
+CONTAINER_TOOL ?= docker
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
-# Options are set to exit when a recipe line exits non-zero or a piped command fails.
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
@@ -25,20 +21,9 @@ all: build
 
 ##@ General
 
-# The help target prints out all targets with their descriptions organized
-# beneath their categories. The categories are represented by '##@' and the
-# target descriptions by '##'. The awk command is responsible for reading the
-# entire set of makefiles included in this invocation, looking for lines of the
-# file as xyz: ## something, and then pretty-format the target and help. Then,
-# if there's a line with ##@ something, that gets pretty-printed as a category.
-# More info on the usage of ANSI control characters for terminal formatting:
-# https://en.wikipedia.org/wiki/ANSI_escape_code#SGR_parameters
-# More info on the awk command:
-# http://linuxcommand.org/lc3_adv_awk.php
-
 .PHONY: help
 help: ## Display this help.
-	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
 ##@ Development
 
@@ -62,11 +47,10 @@ vet: ## Run go vet against code.
 test: manifests generate fmt vet setup-envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
-# TODO(user): To use a different vendor for e2e tests, modify the setup under 'tests/e2e'.
-# The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
-# Prometheus and CertManager are installed by default; skip with:
-# - PROMETHEUS_INSTALL_SKIP=true
-# - CERT_MANAGER_INSTALL_SKIP=true
+.PHONY: test-unit
+test-unit: ## Run unit tests (no envtest required).
+	go test ./internal/latency/ ./internal/circuitbreaker/ ./internal/ebpf/ -v -race -coverprofile cover-unit.out
+
 .PHONY: test-e2e
 test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
 	@command -v kind >/dev/null 2>&1 || { \
@@ -94,40 +78,43 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 ##@ Build
 
 .PHONY: build
-build: manifests generate fmt vet ## Build manager binary.
+build: manifests generate fmt vet ## Build controller manager binary.
 	go build -o bin/manager cmd/main.go
 
-.PHONY: run
-run: manifests generate fmt vet ## Run a controller from your host.
-	go run ./cmd/main.go
+.PHONY: build-agent
+build-agent: fmt vet ## Build eBPF agent binary.
+	CGO_ENABLED=0 go build -o bin/agent cmd/agent/main.go
 
-# If you wish to build the manager image targeting other platforms you can use the --platform flag.
-# (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
-# More info: https://docs.docker.com/develop/develop-images/build_enhancements/
+.PHONY: run
+run: manifests generate fmt vet ## Run the controller from your host.
+	go run ./cmd/main.go --latency-source=probe
+
 .PHONY: docker-build
-docker-build: ## Build docker image with the manager.
+docker-build: ## Build controller docker image.
 	$(CONTAINER_TOOL) build -t ${IMG} .
 
-.PHONY: docker-save
-docker-save: ## Save and import docker image with the manager.
-	$(CONTAINER_TOOL) save ${IMG} > ${IMG}.tar
-	microk8s ctr image import ${IMG}.tar
-	rm ${IMG}.tar
+.PHONY: docker-build-agent
+docker-build-agent: ## Build eBPF agent docker image.
+	$(CONTAINER_TOOL) build -f Dockerfile.agent -t ${AGENT_IMG} .
+
+.PHONY: docker-build-all
+docker-build-all: docker-build docker-build-agent ## Build all docker images.
 
 .PHONY: docker-push
-docker-push: ## Push docker image with the manager.
+docker-push: ## Push controller docker image.
 	$(CONTAINER_TOOL) push ${IMG}
 
-# PLATFORMS defines the target platforms for the manager image be built to provide support to multiple
-# architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:
-# - be able to use docker buildx. More info: https://docs.docker.com/build/buildx/
-# - have enabled BuildKit. More info: https://docs.docker.com/develop/develop-images/build_enhancements/
-# - be able to push the image to your registry (i.e. if you do not set a valid value via IMG=<myregistry/image:<tag>> then the export will fail)
-# To adequately provide solutions that are compatible with multiple platforms, you should consider using this option.
+.PHONY: docker-push-agent
+docker-push-agent: ## Push agent docker image.
+	$(CONTAINER_TOOL) push ${AGENT_IMG}
+
+.PHONY: docker-push-all
+docker-push-all: docker-push docker-push-agent ## Push all docker images.
+
+# PLATFORMS defines the target platforms for cross-compilation.
 PLATFORMS ?= linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
 .PHONY: docker-buildx
-docker-buildx: ## Build and push docker image for the manager for cross-platform support
-	# copy existing Dockerfile and insert --platform=${BUILDPLATFORM} into Dockerfile.cross, and preserve the original Dockerfile
+docker-buildx: ## Build and push controller image for cross-platform support.
 	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
 	- $(CONTAINER_TOOL) buildx create --name aviator-builder
 	$(CONTAINER_TOOL) buildx use aviator-builder
@@ -147,6 +134,7 @@ generate-yaml: manifests generate kustomize ## Generate all necessary YAML files
 	$(KUSTOMIZE) build config/crd > generated-yaml/crd.yaml
 	$(KUSTOMIZE) build config/default > generated-yaml/default.yaml
 	$(KUSTOMIZE) build config/samples > generated-yaml/samples.yaml
+	$(KUSTOMIZE) build config/agent > generated-yaml/agent.yaml
 
 ##@ Deployment
 
@@ -159,7 +147,7 @@ install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~
 	$(KUSTOMIZE) build config/crd | $(KUBECTL) apply -f -
 
 .PHONY: uninstall
-uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
+uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config.
 	$(KUSTOMIZE) build config/crd | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
 
 .PHONY: deploy
@@ -167,9 +155,23 @@ deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
 
+.PHONY: deploy-agent
+deploy-agent: kustomize ## Deploy eBPF agent DaemonSet to the cluster.
+	$(KUSTOMIZE) build config/agent | $(KUBECTL) apply -f -
+
+.PHONY: deploy-all
+deploy-all: deploy deploy-agent ## Deploy controller and agent to the cluster.
+
 .PHONY: undeploy
-undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
+undeploy: kustomize ## Undeploy controller from the K8s cluster.
 	$(KUSTOMIZE) build config/default | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
+
+.PHONY: undeploy-agent
+undeploy-agent: kustomize ## Undeploy eBPF agent from the cluster.
+	$(KUSTOMIZE) build config/agent | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
+
+.PHONY: undeploy-all
+undeploy-all: undeploy undeploy-agent ## Undeploy controller and agent from the cluster.
 
 ##@ Dependencies
 
@@ -188,9 +190,7 @@ GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.5.0
 CONTROLLER_TOOLS_VERSION ?= v0.17.0
-#ENVTEST_VERSION is the version of controller-runtime release branch to fetch the envtest setup script (i.e. release-0.20)
 ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller-runtime | awk -F'[v.]' '{printf "release-%d.%d", $$2, $$3}')
-#ENVTEST_K8S_VERSION is the version of Kubernetes to use for setting up ENVTEST binaries (i.e. 1.31)
 ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
 GOLANGCI_LINT_VERSION ?= v1.62.2
 
